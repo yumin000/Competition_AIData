@@ -13,7 +13,7 @@ df['ymd'] = pd.to_datetime(df['ymd'])
 # 'ymd' 컬럼을 df의 인덱스로 설정
 df.set_index('ymd', inplace=True)
 
-pilot_code = 6
+pilot_code = 10
 pilot_df = df[df['code_new'] == pilot_code].copy()
 
 # 일별 데이터를 월별 데이터로 변환
