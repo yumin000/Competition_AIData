@@ -28,7 +28,7 @@ df['ymd'] = pd.to_datetime(df['ymd'])
 # 'ymd' 컬럼을 df의 인덱스로 설정
 df.set_index('ymd', inplace=True)
 
-pilot_code = 6
+pilot_code = 12
 pilot_df = df[df['code_new'] == pilot_code].copy()
 
 # 월 별 데이터로 리샘플링
@@ -50,7 +50,6 @@ print(f"테스트 데이터 기간: {test_endog.index.min()} ~ {test_endog.index
 # 최적 일반 차수 & 최적 계절성 차수
 best_order = (1, 1, 0)
 best_seasonal_order = (1, 1, 2, 12)
-
 
 
 # 모델 학습
