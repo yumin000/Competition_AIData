@@ -2,14 +2,13 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import math
 
-# (이전 클래스 정의는 수정 사항이 없으므로 생략)
-# PositionalEncoding, TimeSeriesDataset, TimeSeriesTransformer, nse, kge 함수는 그대로 둡니다.
-# ... (이전과 동일한 클래스 및 함수 정의) ...
+# (PositionalEncoding, TimeSeriesTransformer, nse, kge 함수는 이전과 동일)
+# ...
 # --------------------
 # 위치 인코딩 클래스
 # --------------------
@@ -26,9 +25,9 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         return x + self.pe[:x.size(0), :]
-
+        
 # --------------------
-# Dataset 정의
+# Dataset 정의 (✨ 수정됨)
 # --------------------
 class TimeSeriesDataset(Dataset):
     def __init__(self, x_data, y_data, dates, input_len=24, pred_len=1):
@@ -44,7 +43,10 @@ class TimeSeriesDataset(Dataset):
     def __getitem__(self, idx):
         x = self.x_data[idx:idx+self.input_len]
         y = self.y_data[idx+self.input_len:idx+self.input_len+self.pred_len]
-        date = self.dates[idx+self.input_len:idx+self.input_len+self.pred_len]
+        
+        # ✨ 해결 1: 날짜를 리스트가 아닌 문자열로 바로 반환 (pred_len=1 이므로)
+        date = self.dates[idx+self.input_len]
+        
         return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32), date
 
 # --------------------
@@ -81,52 +83,38 @@ def kge(obs, sim):
     beta = np.mean(sim) / np.mean(obs)
     return 1 - np.sqrt((r-1)**2 + (alpha-1)**2 + (beta-1)**2)
 
-# --------------------
-# 데이터 불러오기 및 전처리
-# --------------------
+
+# (데이터 불러오기 및 분할 부분은 이전과 동일)
+# ...
 df = pd.read_csv("TST/code_4.csv")
 df["ymd"] = pd.to_datetime(df["ymd"])
-
-print("원본 데이터 결측치 확인:")
-print(df.isnull().sum())
-# ✨ 해결 3: 최신 fillna 문법으로 수정
+df = df.sort_values(by="ymd").reset_index(drop=True)
 df = df.ffill().bfill() 
-
 features = df.drop(columns=["ymd", "code_new", "elev"])
 target = df[["elev"]].values
-
 feature_scaler = StandardScaler()
 target_scaler = StandardScaler()
-
 scaled_features = feature_scaler.fit_transform(features)
 scaled_target = target_scaler.fit_transform(target)
-
 dataset = TimeSeriesDataset(
     x_data=scaled_features,
     y_data=scaled_target,
     dates=df["ymd"].values,
     input_len=24, pred_len=1
 )
-
 train_size = int(len(dataset) * 0.8)
-test_size = len(dataset) - train_size
-train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-
+train_dataset = Subset(dataset, range(train_size))
+test_dataset = Subset(dataset, range(train_size, len(dataset)))
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-# --------------------
-# 모델 학습 준비
-# --------------------
+# (학습 준비 및 학습 루프 부분은 이전과 동일)
+# ...
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = TimeSeriesTransformer(feature_size=scaled_features.shape[1]).to(device)
 criterion = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3)
-
-# --------------------
-# 학습 루프
-# --------------------
 epochs = 2
 for epoch in range(epochs):
     model.train()
@@ -135,9 +123,7 @@ for epoch in range(epochs):
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         preds = model(x)
-        
-        # ✨ 해결 2: y의 shape을 (batch_size, 1)로 명확하게 맞춰줌
-        loss = criterion(preds, y.view(-1, 1)) 
+        loss = criterion(preds, y.view(-1, 1))
         
         if torch.isnan(loss):
             print(f"Epoch {epoch+1}: Loss is NaN. Skipping update.")
@@ -153,7 +139,7 @@ for epoch in range(epochs):
     scheduler.step(avg_loss)
 
 # --------------------
-# 평가 및 예측
+# 평가 및 예측 (✨ 수정됨)
 # --------------------
 model.eval()
 preds_list, actuals_list, dates_list = [], [], []
@@ -163,31 +149,29 @@ with torch.no_grad():
         x, y = x.to(device), y.to(device)
         pred = model(x)
         
-        # ✨ 해결 1: pred와 y를 2차원 shape (batch_size, 1)으로 변환 후 리스트에 추가
         preds_list.extend(pred.view(-1, 1).cpu().numpy())
         actuals_list.extend(y.view(-1, 1).cpu().numpy())
         
-        dates_flat = [item for sublist in d_batch[0] for item in (sublist if isinstance(sublist, list) else [sublist])]
-        dates_list.extend(dates_flat)
+        # ✨ 해결 2: d_batch는 이제 날짜 문자열의 튜플이므로 바로 extend
+        dates_list.extend(d_batch)
 
-# 이제 preds_list와 actuals_list는 2차원 배열로 잘 변환됩니다.
 preds_arr = target_scaler.inverse_transform(np.array(preds_list))
 actuals_arr = target_scaler.inverse_transform(np.array(actuals_list))
+
+# 이제 dates_list는 문자열 리스트이므로 오류 없이 변환됩니다.
 dates_arr = pd.to_datetime(dates_list[:len(preds_arr)])
 
-# --------------------
-# 성능 평가 및 시각화/저장
-# --------------------
+# (이후 시각화 및 저장 코드는 이전과 동일)
+# ...
 print("NSE:", nse(actuals_arr.flatten(), preds_arr.flatten()))
 print("KGE:", kge(actuals_arr.flatten(), preds_arr.flatten()))
 
 plt.figure(figsize=(15, 7))
-sample_size = 500
-plt.plot(dates_arr[:sample_size], actuals_arr[:sample_size], '.-', label="Actual (elev)")
-plt.plot(dates_arr[:sample_size], preds_arr[:sample_size], '.--', label="Predicted (elev)")
+plt.plot(dates_arr, actuals_arr, '.-', label="Actual (elev)")
+plt.plot(dates_arr, preds_arr, '.--', label="Predicted (elev)")
 plt.xlabel("Date")
 plt.ylabel("Elev")
-plt.title("Elev Prediction")
+plt.title("Elev Prediction (Test Set: Last 20%)")
 plt.legend()
 plt.xticks(rotation=45)
 plt.tight_layout()
@@ -198,7 +182,6 @@ result_df = pd.DataFrame({
     "actual_elev": actuals_arr.flatten(),
     "predicted_elev": preds_arr.flatten()
 })
-result_df.to_csv("elev_predictions.csv", index=False)
-print("Prediction results saved to elev_predictions.csv")
+result_df.to_csv("elev_predictions_last_20_percent.csv", index=False)
 
 
