@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error
 import plotly.graph_objects as go
 import warnings
@@ -14,6 +14,10 @@ df['ymd'] = pd.to_datetime(df['ymd'])
 
 df.set_index('ymd', inplace=True)
 df.sort_index(inplace=True)
+
+df['elev'].replace(0, np.nan, inplace=True)
+df.dropna(inplace=True)
+print("결측치 처리 후 elev컬럼의 0 개수 : ", (df['elev']==0).sum())
 
 '''
 print("\n데이터 정보 확인")
@@ -59,7 +63,7 @@ print(final_df.head())
 TARGET = 'elev'
 
 # TARGET 컬럼을 제외하고 모두 입력 특징(X)로 사용
-X = final_df.drop(columns=TARGET)
+X = final_df.drop(columns=[TARGET])
 
 # TARGET 컬럼만 정답 y 로 사용
 y = final_df[TARGET]
@@ -70,13 +74,18 @@ split_point = int(len(final_df) * 0.8)
 X_train, X_test = X[:split_point], X[split_point:]
 y_train, y_test = y[:split_point], y[split_point:]
 
+'''
+print("X_train의 컬럼 목록")
+print(X_train.columns)
+'''
+
 # ------------------------ 모델 학습 --------------------------------
 # LightGBM 모델
 # n_estimators: 모델이 만들 결정 트리의 개수 (클수록 복잡하고 성능은 좋아지지만, 과적합 위험 있음)
 # learning_rate: 학습률
 # random_state: 결과를 재현하기 위한 값(이 숫자를 고정하면 몇 번을 돌려도 같은 결과가 나옴)
 
-model = lgb.LGBMRegressor(
+final_model = lgb.LGBMRegressor(
     n_estimators=1000,
     learning_rate=0.05,
     random_state=42
@@ -84,11 +93,11 @@ model = lgb.LGBMRegressor(
 
 # 학습 시작
 print("\nTraining...")
-model.fit(X_train, y_train)
+final_model.fit(X_train, y_train)
 print("Comleted!")
 
 # ------------------- 성능 평가 ------------------------
-predictions = model.predict(X_test)
+predictions = final_model.predict(X_test)
 
 def get_nse(y_true, y_pred):
     numerator = np.sum((y_true - y_pred) ** 2)
@@ -110,13 +119,27 @@ print(f"NSE Score: {nse_score:.4f}")
 print(f"KGE Score: {kge_score:.4f}")
 
 # 결과 시각화
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=y_test.index, y=y_test, mode='lines', name='Actual', line=dict(color='blue')))
-fig.add_trace(go.Scatter(x=y_test.index, y=predictions, mode='lines', name='Predicted', line=dict(color='red', dash='dot', width=1.5), opacity=0.8))
-fig.update_layout(
-    title='실제 값 vs 예측 값',
-    xaxis_title='날짜',
-    yaxis_title='지하수위'
-)
+#fig = go.Figure()
+#fig.add_trace(go.Scatter(x=y_test.index, y=y_test, mode='lines', name='Actual', line=dict(color='blue', width=0.5)))
+#fig.add_trace(go.Scatter(x=y_test.index, y=predictions, mode='lines', name='Predicted', line=dict(color='red', dash='dot', width=0.5), opacity=0.8))
+#fig.update_layout(
+#    title='실제 값 vs 예측 값',
+#    xaxis_title='날짜',
+#    yaxis_title='지하수위'
+#)
 
-fig.show()
+#fig.show()
+
+# 데이터 유출 확인
+correlation_matrix = final_df[['elev', 'wtemp', 'ec', 'gtemp']].corr()
+
+print("elev와 주요 피쳐 간 상관 관계\n", correlation_matrix)
+
+import matplotlib.pyplot as plt
+from lightgbm import plot_importance
+
+# 학습된 최종 모델의 피처 중요도 시각화
+# figsize로 그래프 크기 조절 가능
+fig, ax = plt.subplots(figsize=(10, 12))
+plot_importance(final_model, ax=ax, max_num_features=20) # 상위 20개 피처만 표시
+plt.show()
