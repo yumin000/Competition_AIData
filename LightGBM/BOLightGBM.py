@@ -152,8 +152,17 @@ fig = go.Figure()
 fig.add_trace(go.Scatter(x=y_test.index, y=y_test, mode='lines', name='Actual (실제값)', line=dict(color='blue', width=2)))
 fig.add_trace(go.Scatter(x=y_test.index, y=predictions, mode='lines', name='Predicted (예측값)', line=dict(color='red', dash='dot', width=1.5), opacity=0.8))
 fig.update_layout(title='📈 지하수위 실제값 vs. 모델 예측값 비교', xaxis_title='날짜', yaxis_title='지하수위')
-fig.show()
+# fig.show() # 화면에 바로 표시
+
+# 그래프를 그림으로 저장
+try:
+    fig.write_image("results/prediction_vs_actual.png", width=1200, height=600)
+except ValueError as e:
+     print(f"이미지 저장 오류: {e}\n'pip install kaleido'를 실행해야 할 수 있습니다.")
 
 # 피쳐 중요도
-lgb.plot_importance(final_model, figsize=(10, 12), max_num_features=20, title='피처 중요도 (Feature Importance)')
-plt.show()
+fig_importance, ax_importance = plt.subplots(figsize=(10,12))
+lgb.plot_importance(final_model, ax=ax_importance, max_num_features=20, title='피쳐 중요도')
+# plt.show()
+
+plt.savefig('results/feature_importance.png', bbox_inches='tight')
