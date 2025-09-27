@@ -52,7 +52,7 @@ def feature_engineering(df, target_col):
         df_copy[f'{target_col}_rolling_std_{window}'] = df_copy[target_col].rolling(window=window).std()
 
     # 생성된 결측치 제거
-    df_copy = df_copy.dropna()
+    df_copy = df_copy.dropna(inplace=True)
     
     return df_copy
 
@@ -65,7 +65,7 @@ features_to_drop = ['wtemp', 'ec']
 X = final_df.drop(columns=[TARGET_COLUMN] + features_to_drop, errors='ignore')
 y = final_df[TARGET_COLUMN]
 
-split_point = int(len(X) * 0.8)
+split_point = int(len(X) * 0.7)
 X_train, X_test = X.iloc[:split_point], X.iloc[split_point:]
 y_train, y_test = y.iloc[:split_point], y.iloc[split_point:]
 
@@ -156,7 +156,7 @@ fig.update_layout(title='📈 지하수위 실제값 vs. 모델 예측값 비교
 
 # 그래프를 그림으로 저장
 try:
-    fig.write_image("results/prediction_vs_actual.png", width=1200, height=600)
+    fig.write_image("C:/Users/admin/Documents/Competition_AIData/prediction_vs_actual)train7.png", width=1200, height=600)
 except ValueError as e:
      print(f"이미지 저장 오류: {e}\n'pip install kaleido'를 실행해야 할 수 있습니다.")
 
@@ -165,4 +165,4 @@ fig_importance, ax_importance = plt.subplots(figsize=(10,12))
 lgb.plot_importance(final_model, ax=ax_importance, max_num_features=20, title='피쳐 중요도')
 # plt.show()
 
-plt.savefig('results/feature_importance.png', bbox_inches='tight')
+plt.savefig('C:/Users/admin/Documents/Competition_AIData/feature_importance_train7.png', bbox_inches='tight')
