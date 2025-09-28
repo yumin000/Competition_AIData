@@ -1,3 +1,6 @@
+
+# pc1,2,3 활용해서 다변량 TST 모델 학습 + 성능 확인
+
 import pandas as pd
 import numpy as np
 import torch
@@ -6,47 +9,69 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import math
+import random
 
-# (PositionalEncoding, TimeSeriesTransformer, nse, kge 함수는 이전과 동일)
-# ...
+
+df=pd.read_csv('Find_PC/pc3_train.csv')
+
+
+
+seed = 42
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+#code_new,ymd,pc1,pc2,pc3,elev <- 해당 csv 열이름
+
 # --------------------
 # 위치 인코딩 클래스
 # --------------------
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) #shape=(max_len,1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)) #오버플로우 예방 exp+ln
         pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        pe[:, 1::2] = torch.cos(position * div_term) #shape=(max_len,d_model)
+        pe = pe.unsqueeze(0).transpose(0, 1) #shape=(max_len,1,d_model)
+        self.register_buffer('pe', pe) #위치 인코더 값 고정 -> 버퍼저장
+
 
     def forward(self, x):
+
         return x + self.pe[:x.size(0), :]
-        
-# --------------------
-# Dataset 정의 (✨ 수정됨)
-# --------------------
+
+     
+
 class TimeSeriesDataset(Dataset):
     def __init__(self, x_data, y_data, dates, input_len=24, pred_len=1):
         self.x_data = x_data
         self.y_data = y_data
         self.input_len = input_len
         self.pred_len = pred_len
-        self.dates = [str(d) for d in dates]
+        self.dates = [str(d) for d in dates] #날짜 문자열로 변경
 
     def __len__(self):
         return len(self.x_data) - self.input_len - self.pred_len + 1
 
     def __getitem__(self, idx):
-        x = self.x_data[idx:idx+self.input_len]
+        '''x = self.x_data[idx:idx+self.input_len]
         y = self.y_data[idx+self.input_len:idx+self.input_len+self.pred_len]
         
-        # ✨ 해결 1: 날짜를 리스트가 아닌 문자열로 바로 반환 (pred_len=1 이므로)
+        
         date = self.dates[idx+self.input_len]
         
+        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32), date'''
+        x = self.x_data[idx:idx + self.input_len].astype(np.float32)
+        y = self.y_data[idx + self.input_len:idx + self.input_len + self.pred_len].astype(np.float32)
+        
+        date = self.dates[idx + self.input_len]
+        
+        # NumPy 배열을 Tensor로 변환하여 반환
         return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32), date
 
 # --------------------
@@ -86,22 +111,29 @@ def kge(obs, sim):
 
 # (데이터 불러오기 및 분할 부분은 이전과 동일)
 # ...
-df = pd.read_csv("TST/code_4.csv")
+
 df["ymd"] = pd.to_datetime(df["ymd"])
+
 df = df.sort_values(by="ymd").reset_index(drop=True)
-df = df.ffill().bfill() 
+df=df[df['code_new']==4]
+#df = df.ffill().bfill() 
 features = df.drop(columns=["ymd", "code_new", "elev"])
 target = df[["elev"]].values
-feature_scaler = StandardScaler()
-target_scaler = StandardScaler()
-scaled_features = feature_scaler.fit_transform(features)
-scaled_target = target_scaler.fit_transform(target)
+
+#feature_scaler = StandardScaler()
+
+#target_scaler = StandardScaler()
+#scaled_features = feature_scaler.fit_transform(features)
+#scaled_target = target_scaler.fit_transform(target)
+scaled_features=features
+scaled_target=target
 dataset = TimeSeriesDataset(
     x_data=scaled_features,
     y_data=scaled_target,
     dates=df["ymd"].values,
     input_len=24, pred_len=1
 )
+
 train_size = int(len(dataset) * 0.8)
 train_dataset = Subset(dataset, range(train_size))
 test_dataset = Subset(dataset, range(train_size, len(dataset)))
@@ -115,7 +147,8 @@ model = TimeSeriesTransformer(feature_size=scaled_features.shape[1]).to(device)
 criterion = nn.MSELoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3)
-epochs = 2
+
+epochs = 5
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
@@ -137,10 +170,41 @@ for epoch in range(epochs):
     avg_loss = epoch_loss / len(train_loader)
     print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}")
     scheduler.step(avg_loss)
+    if(epoch==4 or epoch ==9 or epoch ==19):
+        model.eval()
+        preds_list, actuals_list, dates_list = [], [], []
 
-# --------------------
+        with torch.no_grad():
+            for x, y, d_batch in test_loader:
+                x, y = x.to(device), y.to(device)
+                pred = model(x)
+                
+                preds_list.extend(pred.view(-1, 1).cpu().numpy())
+                actuals_list.extend(y.view(-1, 1).cpu().numpy())
+                
+                # ✨ 해결 2: d_batch는 이제 날짜 문자열의 튜플이므로 바로 extend
+                dates_list.extend(d_batch)
+
+        #preds_arr = target_scaler.inverse_transform(np.array(preds_list))
+        #actuals_arr = target_scaler.inverse_transform(np.array(actuals_list))
+        preds_arr=np.array(preds_list)
+        actuals_arr=np.array(actuals_list)
+
+        # 이제 dates_list는 문자열 리스트이므로 오류 없이 변환됩니다.
+        dates_arr = pd.to_datetime(dates_list[:len(preds_arr)])
+
+        # (이후 시각화 및 저장 코드는 이전과 동일)
+        # ...
+
+        print(f"{epoch+1} NSE:", nse(actuals_arr.flatten(), preds_arr.flatten()))
+        print(f"{epoch+1} KGE:", kge(actuals_arr.flatten(), preds_arr.flatten()))
+
+       
+
+    # --------------------
 # 평가 및 예측 (✨ 수정됨)
 # --------------------
+'''
 model.eval()
 preds_list, actuals_list, dates_list = [], [], []
 
@@ -163,10 +227,13 @@ dates_arr = pd.to_datetime(dates_list[:len(preds_arr)])
 
 # (이후 시각화 및 저장 코드는 이전과 동일)
 # ...
+
 print("NSE:", nse(actuals_arr.flatten(), preds_arr.flatten()))
 print("KGE:", kge(actuals_arr.flatten(), preds_arr.flatten()))
 
-plt.figure(figsize=(15, 7))
+
+
+plt.figure(figsize=(25, 10))
 plt.plot(dates_arr, actuals_arr, '.-', label="Actual (elev)")
 plt.plot(dates_arr, preds_arr, '.--', label="Predicted (elev)")
 plt.xlabel("Date")
@@ -181,7 +248,6 @@ result_df = pd.DataFrame({
     "date": dates_arr,
     "actual_elev": actuals_arr.flatten(),
     "predicted_elev": preds_arr.flatten()
-})
-result_df.to_csv("elev_predictions_last_20_percent.csv", index=False)
-
+})'''
+#result_df.to_csv("elev_predictions_last_20_percent.csv", index=False)
 
