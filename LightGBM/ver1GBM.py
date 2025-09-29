@@ -1,3 +1,6 @@
+# Optuna를 rmse값말고 nse값에 최적 
+
+
 # ==============================================================================
 # 1. 라이브러리 불러오기
 # ==============================================================================
@@ -7,7 +10,6 @@ import lightgbm as lgb
 import optuna
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_squared_error
-import os
 
 # ==============================================================================
 # 2. 초기 변수 설정 및 데이터 로딩/클리닝
@@ -18,7 +20,7 @@ TARGET_COLUMN = 'elev'
 # -----------------------------------------
 
 # 데이터 로딩
-df = pd.read_csv(FILE_NAME, encoding='cp949')
+df = pd.read_csv(FILE_NAME, encoding='cp949') # 한글 안깨지게 
 
 # 날짜 컬럼 처리 및 인덱스 설정
 df[DATE_COLUMN] = pd.to_datetime(df[DATE_COLUMN])
@@ -45,11 +47,10 @@ def feature_engineering(df, target_col):
     # --- 기준이 되는 데이터를 8일 전으로 이동 ---
     df_shifted = df_copy.shift(8)
     
-    # 시간 관련 피처
-    df_copy['month'] = df_copy.index.month
-    df_copy['dayofweek'] = df_copy.index.dayofweek
-    df_copy['dayofyear'] = df_copy.index.dayofyear
-    df_copy['time_index'] = (df_copy.index - df_copy.index.min()).days
+    # 시간 관련 피처 -> 주기적인 패턴과 장기적인 추세 학습 도움
+    df_copy['month'] = df_copy.index.month # 월별로 계절성 학습
+    df_copy['dayofyear'] = df_copy.index.dayofyear # month보다 세밀한 계절성 학습
+    df_copy['time_index'] = (df_copy.index - df_copy.index.min()).days # 장기적인 추세 학습 
     
     # 지연(Lag) 피처
     df_copy[f'{target_col}_lag_8'] = df_shifted[target_col]
@@ -57,10 +58,12 @@ def feature_engineering(df, target_col):
     df_copy[f'{target_col}_lag_30'] = df_shifted[target_col].shift(22)
     
     # 이동(Rolling) 및 변화량(Diff) 피처
-    df_copy[f'{target_col}_rolling_mean_7_shifted'] = df_shifted[target_col].rolling(window=7).mean()
+    # rolling : 데이터를 특정 기간으로 묶어줌
+    # 묶인 여러개의 숫자를 보고 평균이나 표준편차를 계산
+    df_copy[f'{target_col}_rolling_mean_7_shifted'] = df_shifted[target_col].rolling(window=7).mean() # 8~14일 전
     df_copy[f'{target_col}_rolling_std_7_shifted'] = df_shifted[target_col].rolling(window=7).std()
-    df_copy[f'{target_col}_rolling_mean_14_shifted'] = df_shifted[target_col].rolling(window=14).mean()
-    df_copy[f'{target_col}_diff_7d_shifted'] = df_shifted[target_col].diff(periods=7)
+    df_copy[f'{target_col}_rolling_mean_14_shifted'] = df_shifted[target_col].rolling(window=14).mean() # 8~22일 전
+    df_copy[f'{target_col}_diff_7d_shifted'] = df_shifted[target_col].diff(periods=7) # 기간별 변화량 (8일전 - 15일전)
 
     # 장기 이동 평균
     df_copy[f'{target_col}_rolling_mean_30_shifted'] = df_shifted[target_col].rolling(window=30).mean()
@@ -93,8 +96,11 @@ final_df = feature_engineering(df, TARGET_COLUMN)
 # (2) 결과를 저장할 빈 데이터프레임 생성
 results_df = pd.DataFrame(columns=['code_new', 'NSE', 'KGE'])
 
+# 관측소 순서대로
+station_codes = sorted(final_df['code_new'].unique())
+
 # (3) 각 code_new 값에 대해 루프 실행
-for code in final_df['code_new'].unique():
+for code in station_codes:
     print(f'========== {code} 최적화 시작 ==========')
     
     # 해당 code_new 데이터만 필터링
@@ -123,9 +129,8 @@ for code in final_df['code_new'].unique():
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.7, 1.0),
         }
 
-        # 시계열 교차검증으로 안정적인 성능 평가
-        tscv = TimeSeriesSplit(n_splits=5)
-        rmses = []
+        tscv = TimeSeriesSplit(n_splits=10)
+        rmses = [] # nses 리스트 생성
         for train_idx, val_idx in tscv.split(X_train):
             X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
             y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
@@ -135,14 +140,15 @@ for code in final_df['code_new'].unique():
                       eval_set=[(X_val_fold, y_val_fold)],
                       callbacks=[lgb.early_stopping(100, verbose=False)])
             preds = model.predict(X_val_fold)
+            
             rmse = np.sqrt(mean_squared_error(y_val_fold, preds))
             rmses.append(rmse)
-        
-        return np.mean(rmses)
+
+        return np.mean(rmses) # NSE 평균 반환
 
     # (5) Optuna
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=30)
+    study.optimize(objective, n_trials=25)
 
     # (6) 최적 파라미터로 최종 모델 학습
     best_params = study.best_params
