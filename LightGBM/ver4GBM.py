@@ -1,3 +1,5 @@
+# Optuna 말고 수동으로 파라미터 조정
+
 # 하나의 모델로 학습
 # trial을 레전드로 크게 
 
@@ -77,7 +79,7 @@ def get_kge(y_true, y_pred):
     return 1 - np.sqrt((r - 1)**2 + (beta - 1)**2 + (gamma - 1)**2)
 
 # ==============================================================================
-# 5. 1단계: 모든 데이터를 사용해 하나의 '글로벌 모델' 생성 및 평가
+# 5. "학습은 함께": num_leaves 수동 테스트
 # ==============================================================================
 print("\n--- 🚀 글로벌 모델 학습 시작 ---")
 
@@ -93,43 +95,32 @@ split_point = int(len(X) * 0.8)
 X_train, X_test = X.iloc[:split_point], X.iloc[split_point:]
 y_train, y_test = y.iloc[:split_point], y.iloc[split_point:]
 
-# (3) Optuna로 전체 모델 최적화 (RMSE 최소화)
-def objective(trial):
-    params = {
-        'objective': 'regression_l1', 'metric': 'rmse', 'verbosity': -1, 'random_state': 42,
-        'n_estimators': 1000,
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1),
-        'num_leaves': trial.suggest_int('num_leaves', 20, 60),
-        'max_depth': trial.suggest_int('max_depth', 5, 12),
-        'reg_alpha' : trial.suggest_float('reg_alpha', 0.0, 1.0),
-        'reg_lambda' : trial.suggest_float('reg_lambda', 0.0, 1.0),
-        'subsample': trial.suggest_float('subsample', 0.7, 1.0),
-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.7, 1.0),
-    }
-    tscv = TimeSeriesSplit(n_splits=5)
-    rmses = []
-    for train_idx, val_idx in tscv.split(X_train):
-        X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
-        y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        model = lgb.LGBMRegressor(**params)
-        model.fit(X_train_fold, y_train_fold,
-                  eval_set=[(X_val_fold, y_val_fold)],
-                  callbacks=[lgb.early_stopping(100, verbose=False)])
-        preds = model.predict(X_val_fold)
-        rmse = np.sqrt(mean_squared_error(y_val_fold, preds))
-        rmses.append(rmse)
-    return np.mean(rmses)
+# (3) --- Optuna 최적화 부분 주석 처리 ---
+# print("--- 글로벌 모델 최적화 (Optuna)는 건너뜁니다... ---")
+# study = optuna.create_study(direction='minimize')
+# study.optimize(objective, n_trials=30)
+# best_params = study.best_params
+# print(f"--- 최적 파라미터 발견: {best_params} ---")
 
-print("--- 글로벌 모델 최적화 (Optuna) 시작 (시간이 다소 소요될 수 있습니다)... ---")
-study = optuna.create_study(direction='minimize')
-study.optimize(objective, n_trials=30)
-best_params = study.best_params
-print(f"--- 최적 파라미터 발견: {best_params} ---")
+# (4) 수동으로 파라미터 설정 
+manual_params = {
+    'objective': 'regression_l1',
+    'random_state': 42,
+    'learning_rate': 0.01,
+    'n_estimators': 2000,
+    
+    'num_leaves': 81,
+}
+print(f"--- 수동 파라미터로 학습 시작 (num_leaves = {manual_params['num_leaves']}) ---")
 
-# (4) 찾은 최적 파라미터로 단 하나의 최종 모델 학습
-final_model = lgb.LGBMRegressor(**best_params, n_estimators=2000, random_state=42)
-final_model.fit(X_train, y_train)
+# (5) 설정된 파라미터로 단 하나의 최종 모델 학습
+final_model = lgb.LGBMRegressor(**manual_params)
+# early_stopping을 위해 학습 시에만 X_test, y_test를 eval_set으로 사용
+final_model.fit(X_train, y_train,
+                eval_set=[(X_test, y_test)],
+                callbacks=[lgb.early_stopping(100, verbose=False)])
 print("\n--- 단일 글로벌 모델 학습 완료 ---\n")
+
 
 # ==============================================================================
 # 6. "평가는 따로": 학습된 모델로 관측소별 성능 평가
