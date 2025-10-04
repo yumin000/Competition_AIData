@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 
 # tcn_utils 안에 있는 함수들 불러오기
 from tcn_utils import (
+    DEVICE,
+    TIME_VARYING_FEATURES,
+    STATIC_NUMERIC_FEATURES,
     encode_river,
     coerce_numeric,
     add_calendar_feats,
@@ -24,15 +27,8 @@ from tcn_utils import (
     kge,
 )
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-TIME_VARYING_FEATURES = [
-    "wtemp", "ec", "temp", "rainfall", "wind",
-    "humidity", "pressure", "gtemp", "welect"
-]
-STATIC_NUMERIC_FEATURES = ["lat", "lon", "level"]
-
 # ----------------------
-# 그래프 함수
+# 예측 결과 시각화 함수
 # ----------------------
 def plot_site_timeseries(y_true, y_pred, times, site_id, out_dir):
     """한 사이트의 예측 vs 실제 곡선을 그려 PNG 저장"""
@@ -55,7 +51,9 @@ def plot_site_timeseries(y_true, y_pred, times, site_id, out_dir):
 def run_one_site(site_id, train_df, val_df, args):
     print(f"\n=== Training site {site_id} ===")
 
-    # site 데이터만 추출
+    # 데이터 분리
+    ''' site 데이터만 추출
+        해당 site만의 독립된 시계열 데이터 확보 '''
     tr_df = train_df[train_df["code_new"] == site_id].copy()
     va_df = val_df[val_df["code_new"] == site_id].copy()
 
@@ -65,6 +63,7 @@ def run_one_site(site_id, train_df, val_df, args):
     tr_df = coerce_numeric(tr_df, TIME_VARYING_FEATURES + STATIC_NUMERIC_FEATURES)
     va_df = coerce_numeric(va_df, TIME_VARYING_FEATURES + STATIC_NUMERIC_FEATURES)
 
+    # 캘린더 피쳐 추가
     if not args.no_calendar:
         tr_df = add_calendar_feats(tr_df)
         va_df = add_calendar_feats(va_df)
@@ -74,12 +73,19 @@ def run_one_site(site_id, train_df, val_df, args):
     Xva_t, Sva_s, va_site, va_riv, yva, tva, sor_va, _       = build_feature_matrix(va_df, not args.no_calendar)
 
     # scaling
+    ''' train 데이터 기준으로 평균, 표준편차 계산
+        표준화 (mean = 0, std = 1)
+        validation 데이터도 같은 스케일러로 변환'''
     scalers = Scalers()
     scalers.fit(Xtr_t, Str_s, ytr)
-    Xtr_t = scalers.transform_time(Xtr_t); Str_s = scalers.transform_static(Str_s); ytr_s = scalers.transform_y(ytr)
-    Xva_t = scalers.transform_time(Xva_t); Sva_s = scalers.transform_static(Sva_s); yva_s = scalers.transform_y(yva)
+    Xtr_t = scalers.transform_time(Xtr_t)
+    Str_s = scalers.transform_static(Str_s)
+    ytr_s = scalers.transform_y(ytr)
+    Xva_t = scalers.transform_time(Xva_t)
+    Sva_s = scalers.transform_static(Sva_s)
+    yva_s = scalers.transform_y(yva)
 
-    # indices
+    # indices (윈도우 인덱스 생성)
     L, H = args.l_window, args.h_horizon
     idx_tr = make_indices_per_site(tr_df, L, H)
     idx_va = make_indices_per_site(va_df, L, H)
@@ -104,11 +110,14 @@ def run_one_site(site_id, train_df, val_df, args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.MSELoss()
 
-    # train + early stopping
+    # 학습 루프
     best_val = float("inf")
     best_path = os.path.join(args.output_dir, f"site{site_id}_best.pt")
     patience_counter = 0
 
+    ''' 매 epoch마다 train/val MSE  출력
+        validation loss가 개선될 때마다 모델 저장
+        개선 안 되면 patience 증가 -> 일정 횟수 연속 악화 시 early stopping '''
     for epoch in range(1, args.epochs + 1):
         tr_loss = train_one_epoch(model, tr_ld, optimizer, loss_fn)
         va_loss = evaluate(model, va_ld, loss_fn)
@@ -124,13 +133,14 @@ def run_one_site(site_id, train_df, val_df, args):
                 print(f"[Site {site_id}] Early stopping at epoch {epoch}")
                 break
 
-    # best model 불러오기
+    # 예측 및 평가
+    ''' 검증 데이터셋에 대해 예측 수행
+        스케일 복원
+        결과 시계열, 예측값/정답 배열 반환 '''
     model.load_state_dict(torch.load(best_path, map_location=DEVICE))
-
-    # 예측
     preds, trues, meta_df = evaluate_full(model, va_ld, scalers, horizon=H)
 
-    # NSE, KGE 계산 (첫 step만)
+    # NSE, KGE 계산 (1-step 예측만)
     y_true = trues[:, 0]
     y_pred = preds[:, 0]
     nse_val = nse(y_true, y_pred)
@@ -138,7 +148,7 @@ def run_one_site(site_id, train_df, val_df, args):
 
     # site별 시계열 그래프
     site_times = meta_df[meta_df["horizon"] == 1]["time"].values
-    plot_site_timeseries(y_true, y_pred, site_times, site_id, args.output_dir)
+    plot_site_timeseries(y_true, y_pred, site_times, site_id, args.output_dir)  # 예측 곡선 저장
 
     return {"site": site_id, "NSE": nse_val, "KGE": kge_val}
 
