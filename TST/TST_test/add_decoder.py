@@ -217,8 +217,8 @@ for code,df in ddf.groupby('code_new'):
     model = TimeSeriesTransformerEncoderDecoder(feature_size=scaled_features.shape[1]).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
-    epochs = 5
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    epochs = 20
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1) #손실함수 안줄어 들면 rate 줄이기
     
     print(f"\n--- Training for code_new: {code} (Encoder-Decoder Transformer) ---")
