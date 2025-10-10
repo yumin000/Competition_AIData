@@ -199,8 +199,8 @@ for code, df_train in ddf.groupby('code_new'):
     # 4. 모델 학습 (이전과 동일)
     model = TimeSeriesTransformerEncoderDecoder(feature_size=scaled_train_features.shape[1]).to(device)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0005)
-    epochs = 1
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+    epochs = 5
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1)
 
     print(f"--- Training Model for {code} ---")
