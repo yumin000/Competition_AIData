@@ -21,7 +21,7 @@ torch.backends.cudnn.benchmark = False
 # --------------------
 decoder_input=[105.51818432210463, 201.97753013045494, 54.40671110375093, 77.50952757471778, 80.85326710636139, 140.61231703894475, 125.13273404237557, 224.21731086375632, 214.23033454052356, 27.585659739402935, 2.9331123190800343, 113.38119163648338]
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000):
+    def __init__(self, d_model, max_len=500):
         super(PositionalEncoding, self).__init__()
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) 
@@ -38,7 +38,7 @@ class PositionalEncoding(nn.Module):
 # --------------------
 
 class TimeSeriesDataset(Dataset):
-    def __init__(self, x_data, y_data, dates, input_len=24, pred_len=1, ar_lag=8, is_inference=False):
+    def __init__(self, x_data, y_data, dates, input_len=48, pred_len=1, ar_lag=8*24, is_inference=False):
         self.x_data = x_data
         self.y_data = y_data
         self.input_len = input_len
@@ -185,21 +185,25 @@ for code, df_train in ddf.groupby('code_new'):
     # 학습
     train_dataset = TimeSeriesDataset(
         x_data=scaled_train_features, y_data=scaled_train_target, dates=df_train["ymd"].values,
-        input_len=24, pred_len=1, ar_lag=8*24, is_inference=False
+        is_inference=False
     )
     train_loader = DataLoader(train_dataset, batch_size=128, shuffle=False)
     
     # ⭐ 추론 (is_inference=True)
     inference_dataset = TimeSeriesDataset(
         x_data=scaled_test_features, y_data=scaled_test_target_dummy, dates=df_test["ymd"].values,
-        input_len=24, pred_len=1, is_inference=True
+         is_inference=True
     )
     inference_loader = DataLoader(inference_dataset, batch_size=128, shuffle=False)
 
     # 4. 모델 학습 (이전과 동일)
     model = TimeSeriesTransformerEncoderDecoder(feature_size=scaled_train_features.shape[1]).to(device)
     criterion = nn.MSELoss()
+<<<<<<< HEAD
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+=======
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+>>>>>>> cfe91ae874834c45a733650debd9a400d2683623
     epochs = 5
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1)
 
