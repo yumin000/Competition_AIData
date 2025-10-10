@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+
+
 # 1. 파일 로드 및 초기 설정
 # 파일 이름이 TST_test1.csv였다면, TST_test1_wide.csv 등으로 이름을 변경하여 테스트하시는 것을 권장합니다.
 file_path = 'TST_test1.csv'  # 파일 이름을 실제 파일명으로 지정
@@ -67,11 +69,16 @@ else:
 
 
 # 6. 수정된 데이터를 새 파일로 저장
-output_file_path = 'TST_test1_wide_with_20210101_added.csv'
+output_file_path = 'TST_test3_.csv'
 df_final.to_csv(output_file_path, index=False)
 print(f"✅ 수정된 파일이 {output_file_path}으로 저장되었습니다.")
 
 # 최종 결과 확인 (누락된 부분이 채워졌는지)
 print("\n--- 최종 결과 (첫 30행) ---")
 print(df_final.head(30).to_string())
+
+
+
+
+
 
