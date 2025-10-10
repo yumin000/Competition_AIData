@@ -106,8 +106,8 @@ for code,df in ddf.groupby('code_new'):
     train_size = int(len(dataset) * 0.8)
     train_dataset = Subset(dataset, range(train_size))
     test_dataset = Subset(dataset, range(train_size, len(dataset)))
-    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -182,133 +182,136 @@ ddf["ymd"] = pd.to_datetime(ddf["ymd"])
 ddf = ddf.ffill()
 
 for code,df in ddf.groupby('code_new'):
-    df = df.sort_values(by="ymd").reset_index(drop=True)
-    
-    # 특징(X)과 타겟(Y) 정의
-    features = df.drop(columns=["ymd", "code_new", "elev"]).values
-    target = df[["elev"]].values
-    
-    # 스케일러 정의 및 적용
-    feature_scaler = StandardScaler()
-    target_scaler = StandardScaler()
-    scaled_features = feature_scaler.fit_transform(features)
-    scaled_target = target_scaler.fit_transform(target)
-    
-    # Dataset 생성
-    # input_len=24, pred_len=1 (기존과 동일)
-    dataset = TimeSeriesDataset(
-        x_data=scaled_features,
-        y_data=scaled_target, # Target 데이터(y)도 스케일링된 값 사용
-        dates=df["ymd"].values,
-        input_len=24, pred_len=1
-    )
-    
-    # 데이터셋 분리 및 DataLoader 설정
-    train_size = int(len(dataset) * 0.8)
-    train_dataset = Subset(dataset, range(train_size))
-    test_dataset = Subset(dataset, range(train_size, len(dataset)))
-    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
-
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # 🌟 모델 교체: TimeSeriesTransformerEncoderDecoder 사용
-    model = TimeSeriesTransformerEncoderDecoder(feature_size=scaled_features.shape[1]).to(device)
-
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
-    epochs = 20
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1) #손실함수 안줄어 들면 rate 줄이기
-    
-    print(f"\n--- Training for code_new: {code} (Encoder-Decoder Transformer) ---")
-    
-    for epoch in range(epochs):
-        model.train()
-        epoch_loss = 0
-        for src, tgt, y, _ in train_loader:
-            # src: 인코더 입력 (features), tgt: 디코더 입력 (SOS 역할), y: 정답 (Target)
-            src, tgt, y = src.to(device), tgt.to(device), y.to(device)
-            optimizer.zero_grad()
-            
-            # 예측 (tgt_mask는 내부에서 생성)
-            preds = model(src, tgt) 
-            
-            # 손실 계산: 예측값과 정답 타겟(y)을 비교
-            loss = criterion(preds, y.view(-1, 1))
-            
-            if torch.isnan(loss):
-                print(f"Epoch {epoch+1}: Loss is NaN. Skipping update.")
-                continue
-            
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            epoch_loss += loss.item()
+    if(code==10):
+        df = df.sort_values(by="ymd").reset_index(drop=True)
         
-        avg_loss = epoch_loss / len(train_loader)
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}")
-        scheduler.step(avg_loss)
+        # 특징(X)과 타겟(Y) 정의
+        features = df.drop(columns=["ymd", "code_new", "elev"]).values
+        target = df[["elev"]].values
+        
+        # 스케일러 정의 및 적용
+        feature_scaler = StandardScaler()
+        target_scaler = StandardScaler()
+        scaled_features = feature_scaler.fit_transform(features)
+        scaled_target = target_scaler.fit_transform(target)
+        
+        # Dataset 생성
+        # input_len=24, pred_len=1 (기존과 동일)
+        dataset = TimeSeriesDataset(
+            x_data=scaled_features,
+            y_data=scaled_target, # Target 데이터(y)도 스케일링된 값 사용
+            dates=df["ymd"].values,
+            input_len=24, pred_len=1
+        )
+        
+        # 데이터셋 분리 및 DataLoader 설정
+        train_size = int(len(dataset) * 0.8)
+        train_dataset = Subset(dataset, range(train_size))
+        test_dataset = Subset(dataset, range(train_size, len(dataset)))
+        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
 
-    # --------------------
-    # 평가 및 예측 (Encoder-Decoder 추론 모드)
-    # --------------------
-    model.eval()
-    preds_list, actuals_list, dates_list = [], [], []
+        
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # 🌟 모델 교체: TimeSeriesTransformerEncoderDecoder 사용
+        model = TimeSeriesTransformerEncoderDecoder(feature_size=scaled_features.shape[1]).to(device)
 
-    with torch.no_grad():
-        for src, tgt_init, y, d_batch in test_loader:
-            src, y = src.to(device), y.to(device)
-            batch_size = src.size(0)
+        criterion = nn.MSELoss()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+        epochs = 20
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=1) #손실함수 안줄어 들면 rate 줄이기
+        
+        print(f"\n--- Training for code_new: {code} (Encoder-Decoder Transformer) ---")
+        
+        for epoch in range(epochs):
+            model.train()
+            epoch_loss = 0
+            for src, tgt, y, _ in train_loader:
+                # src: 인코더 입력 (features), tgt: 디코더 입력 (SOS 역할), y: 정답 (Target)
+                src, tgt, y = src.to(device), tgt.to(device), y.to(device)
+                optimizer.zero_grad()
+                
+                # 예측 (tgt_mask는 내부에서 생성)
+                preds = model(src, tgt) 
+                
+                # 손실 계산: 예측값과 정답 타겟(y)을 비교
+                loss = criterion(preds, y.view(-1, 1))
+                
+                if torch.isnan(loss):
+                    print(f"Epoch {epoch+1}: Loss is NaN. Skipping update.")
+                    continue
+                
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                epoch_loss += loss.item()
             
-            # 추론 시에는 디코더의 첫 입력(SOS)만 주고, 이후 예측값을 다시 입력으로 사용
-            # (여기서는 pred_len=1 이므로 한 번의 예측만 수행)
-            
-            # 1. 인코더 처리: 인코더 입력(src)만 전달하여 메모리 생성 (인코더의 역할)
-            memory = model.transformer.encoder(model.pos_encoder(model.encoder_embedding(src).permute(1, 0, 2)))
-            
-            # 2. 디코더 초기 입력 설정: tgt_init은 SOS 역할을 하는 이전 시점의 타겟 값
-            decoder_input_sequence = tgt_init.to(device) # (B, 1, 1)
-            
-            # 3. 임베딩 및 위치 인코딩
-            tgt_emb = model.decoder_embedding(decoder_input_sequence) * math.sqrt(model.d_model)
-            tgt_emb = tgt_emb.permute(1, 0, 2) # (S=1, B, E)
-            tgt_emb = model.pos_encoder(tgt_emb)
-            
-            # 4. 디코더 처리 (크로스 어텐션에 memory 사용)
-            # tgt_mask 생성 (S=1이므로 단순 0)
-            tgt_mask = nn.Transformer.generate_square_subsequent_mask(1).to(device)
-            
-            # out: (S=1, B, E)
-            out = model.transformer.decoder(tgt_emb, memory, tgt_mask=tgt_mask) 
-            
-            # 5. 최종 예측
-            pred = model.fc_out(out[-1, :, :]) 
-            
-            # 리스트에 저장
-            preds_list.extend(pred.view(-1, 1).cpu().numpy())
-            actuals_list.extend(y.view(-1, 1).cpu().numpy())
-            dates_list.extend(d_batch)
+            avg_loss = epoch_loss / len(train_loader)
+            print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}")
+            scheduler.step(avg_loss)
 
-    # 스케일 역변환
-    preds_arr = target_scaler.inverse_transform(np.array(preds_list))
-    actuals_arr = target_scaler.inverse_transform(np.array(actuals_list))
+        # --------------------
+        # 평가 및 예측 (Encoder-Decoder 추론 모드)
+        # --------------------
+        model.eval()
+        preds_list, actuals_list, dates_list = [], [], []
 
-    dates_arr = pd.to_datetime(dates_list[:len(preds_arr)])
+        with torch.no_grad():
+            for src, tgt_init, y, d_batch in test_loader:
+                src, y = src.to(device), y.to(device)
+                batch_size = src.size(0)
+                
+                # 추론 시에는 디코더의 첫 입력(SOS)만 주고, 이후 예측값을 다시 입력으로 사용
+                # (여기서는 pred_len=1 이므로 한 번의 예측만 수행)
+                
+                # 1. 인코더 처리: 인코더 입력(src)만 전달하여 메모리 생성 (인코더의 역할)
+                memory = model.transformer.encoder(model.pos_encoder(model.encoder_embedding(src).permute(1, 0, 2)))
+                
+                # 2. 디코더 초기 입력 설정: tgt_init은 SOS 역할을 하는 이전 시점의 타겟 값
+                decoder_input_sequence = tgt_init.to(device) # (B, 1, 1)
+                
+                # 3. 임베딩 및 위치 인코딩
+                tgt_emb = model.decoder_embedding(decoder_input_sequence) * math.sqrt(model.d_model)
+                tgt_emb = tgt_emb.permute(1, 0, 2) # (S=1, B, E)
+                tgt_emb = model.pos_encoder(tgt_emb)
+                
+                # 4. 디코더 처리 (크로스 어텐션에 memory 사용)
+                # tgt_mask 생성 (S=1이므로 단순 0)
+                tgt_mask = nn.Transformer.generate_square_subsequent_mask(1).to(device)
+                
+                # out: (S=1, B, E)
+                out = model.transformer.decoder(tgt_emb, memory, tgt_mask=tgt_mask) 
+                
+                # 5. 최종 예측
+                pred = model.fc_out(out[-1, :, :]) 
+                
+                # 리스트에 저장
+                preds_list.extend(pred.view(-1, 1).cpu().numpy())
+                actuals_list.extend(y.view(-1, 1).cpu().numpy())
+                dates_list.extend(d_batch)
 
-    # 결과 출력
-    print("\n--- Evaluation Metrics ---")
-    print(f"{code}NSE: {nse(actuals_arr.flatten(), preds_arr.flatten()):.4f}")
-    print(f"{code}KGE: {kge(actuals_arr.flatten(), preds_arr.flatten()):.4f}")
-    
-    # --------------------
-    # 시각화 (선택 사항)
-    # --------------------
-    plt.figure(figsize=(12, 6))
-    plt.plot(dates_arr, actuals_arr.flatten(), label='Actual (elev)', color='blue')
-    plt.plot(dates_arr, preds_arr.flatten(), label='Prediction (elev)', color='red', linestyle='--')
-    plt.title(f'Encoder-Decoder Transformer Prediction vs Actual (Code: {code})')
-    plt.xlabel('Date')
-    plt.ylabel('elev (Inverse Scaled)')
-    plt.legend()
-    plt.savefig(f'TST/TST_encoder_decoder {code} graph.png')
+        # 스케일 역변환
+        preds_arr = target_scaler.inverse_transform(np.array(preds_list))
+        actuals_arr = target_scaler.inverse_transform(np.array(actuals_list))
+
+        dates_arr = pd.to_datetime(dates_list[:len(preds_arr)])
+
+        # 결과 출력
+        print("\n--- Evaluation Metrics ---")
+        print(f"{code}NSE: {nse(actuals_arr.flatten(), preds_arr.flatten()):.4f}")
+        print(f"{code}KGE: {kge(actuals_arr.flatten(), preds_arr.flatten()):.4f}")
+        
+
+        '''
+        # --------------------
+        # 시각화 (선택 사항)
+        # --------------------
+        plt.figure(figsize=(12, 6))
+        plt.plot(dates_arr, actuals_arr.flatten(), label='Actual (elev)', color='blue')
+        plt.plot(dates_arr, preds_arr.flatten(), label='Prediction (elev)', color='red', linestyle='--')
+        plt.title(f'Encoder-Decoder Transformer Prediction vs Actual (Code: {code})')
+        plt.xlabel('Date')
+        plt.ylabel('elev (Inverse Scaled)')
+        plt.legend()
+        plt.savefig(f'TST/TST_encoder_decoder {code} graph.png')'''
