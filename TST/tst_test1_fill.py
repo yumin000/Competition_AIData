@@ -5,7 +5,7 @@ import numpy as np
 
 # 1. 파일 로드 및 초기 설정
 # 파일 이름이 TST_test1.csv였다면, TST_test1_wide.csv 등으로 이름을 변경하여 테스트하시는 것을 권장합니다.
-file_path = 'TST_test1.csv'  # 파일 이름을 실제 파일명으로 지정
+file_path = 'final_test_predictions_wide.csv'  # 파일 이름을 실제 파일명으로 지정
 try:
     # Wide Format 파일 로드 (첫 번째 행은 'ymd', '1', '2', ... 열 이름이 와야 합니다)
     df = pd.read_csv(file_path)
@@ -69,13 +69,18 @@ else:
 
 
 # 6. 수정된 데이터를 새 파일로 저장
-output_file_path = 'TST_test3_.csv'
+output_file_path = 'TST_test5_.csv'
 df_final.to_csv(output_file_path, index=False)
 print(f"✅ 수정된 파일이 {output_file_path}으로 저장되었습니다.")
 
 # 최종 결과 확인 (누락된 부분이 채워졌는지)
 print("\n--- 최종 결과 (첫 30행) ---")
 print(df_final.head(30).to_string())
+'''
+
+df=pd.read_csv('not_filled_TST_test1.csv')
+df = df.ffill().bfill()
+df.to_csv("filled_TST_test_decoder_input1.csv", index=False)'''
 
 
 
